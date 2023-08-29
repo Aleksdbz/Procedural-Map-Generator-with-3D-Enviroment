@@ -29,6 +29,18 @@ public class CustomTerrain : MonoBehaviour
     public float perlinHeightScale = 0.09f;
     #endregion
 
+    #region Voronoi 
+    public int voronoiPeaks = 5;
+    public float voronoifallOff = 0.2f;
+    public float voronoiDropOff = 0.6f;
+    public float voronoiMaxHeight = 0.5f;
+    public float voronoiMinHeight = 0.1f;
+    public enum VoronoiType {Linear = 0, Power = 1, Combined = 2, SinPow = 4};
+    public VoronoiType voronoiType = VoronoiType.Linear;
+    #endregion
+
+
+
     //MULTIPLE PERLIN ----------
     [System.Serializable]
     public class PerlinParameters
@@ -48,6 +60,109 @@ public class CustomTerrain : MonoBehaviour
         new PerlinParameters()
     };
 
+    public void MidPointDisplacment()
+    {
+        float[,] heightMap = GetHeightMap();
+        int resolution = terrainData.heightmapResolution;
+        int width = resolution - 1;
+        int squareSize = width;
+        float height = (float)squareSize / 2f * 0.01f;
+        float roughness = 2.0f;
+        float heightDampener = (float)Mathf.Pow(2, -1 * roughness);
+
+        int cornerX, cornerY;
+        int midX, midY;
+        int pmidXL,pmidXR,pmidYI,pmidYD;
+
+        heightMap[0, 0] = UnityEngine.Random.Range(0f, 0.2f);
+        heightMap[0, resolution - 2] = UnityEngine.Random.Range(0f, 0.2f);
+        heightMap[resolution - 2,0] = UnityEngine.Random.Range(0f, 0.2f);
+        heightMap[resolution - 2, resolution -1] = UnityEngine.Random.Range(0f, 0.2f);
+
+        while (squareSize > 0)
+        {
+            for (int x = 0; x < width; x += squareSize)
+            {
+                for (int y = 0; y < width; y += squareSize)
+                {
+                    cornerX = (x + squareSize);
+                    cornerY = (y + squareSize);
+
+                    midX = (int)(x + squareSize / 2f);
+                    midY = (int)(y + squareSize / 2f);
+
+                    heightMap[midX, midY] = (float)((heightMap[x, y] +
+                        heightMap[cornerX, y] +
+                        heightMap[x, cornerY] +
+                        heightMap[cornerX, cornerY]) / 4f +
+                        UnityEngine.Random.Range(-height, height)); 
+
+                }
+            }
+            squareSize = (int)(squareSize / 2f);
+            height *= heightDampener;
+        }
+        terrainData.SetHeights(0,0 ,heightMap); 
+
+    }
+    public void Voronoi()
+    {
+        int resolution = terrainData.heightmapResolution;
+        float[,] heightMap = GetHeightMap();    
+
+
+        for (int p = 0; p< voronoiPeaks; p++)
+        {
+            Vector3 peak = new Vector3(UnityEngine.Random.Range(0, terrainData.heightmapResolution),
+                                      UnityEngine.Random.Range(voronoiMinHeight, voronoiMaxHeight), 
+                                      UnityEngine.Random.Range(0, terrainData.heightmapResolution));
+
+            if (heightMap[(int)peak.x, (int)peak.z] < peak.y)
+                heightMap[(int)peak.x, (int)peak.z] = peak.y;
+            else
+                continue;
+
+            Vector2 peakLocation = new Vector2(peak.x, peak.z);
+            float maxDistance = Vector2.Distance(new Vector2(0, 0), new Vector2(resolution, resolution));
+           
+            for (int y = 0; y < resolution; y++)
+            {
+                for (int x = 0; x < resolution; x++)
+                {
+                    if (!(x == peak.x && y == peak.z))
+                    {
+                        float distanceToPeak = Vector2.Distance(peakLocation, new Vector2(x, y)) / maxDistance;
+                        float h;
+
+                        if(voronoiType == VoronoiType.Combined)
+                        {
+                            h = peak.y - distanceToPeak * voronoifallOff - Mathf.Pow(distanceToPeak, voronoiDropOff); //Combined
+                        }
+                        else if(voronoiType == VoronoiType.Power)
+                        {
+                            h = peak.y - MathF.Pow(distanceToPeak, voronoiDropOff) * voronoifallOff; //power
+                        }
+                        else if (voronoiType == VoronoiType.SinPow)
+                        {
+                            h = peak.y - Mathf.Pow(distanceToPeak * 3, voronoifallOff) - MathF.Sin(distanceToPeak * 2 * MathF.PI) / voronoiDropOff; //sinpow
+                        }
+                        else
+                        {
+                            h = peak.y - distanceToPeak * voronoifallOff; //linear 
+                        }
+
+
+                         h = peak.y - distanceToPeak * voronoifallOff - MathF.Pow(distanceToPeak, voronoiDropOff);
+                        if(heightMap[x,y] < h)
+                        heightMap[x, y] = h;
+                    }
+                }
+            }
+        }
+
+         
+        terrainData.SetHeights(0,0 ,heightMap);
+    }
     float[,] GetHeightMap()
     {
         int resolution = terrainData.heightmapResolution;
@@ -59,7 +174,6 @@ public class CustomTerrain : MonoBehaviour
         else
             return new float[resolution, resolution];
     }
-
     public void MultiplePerlinTerrain()
     {
         int resolutin = terrainData.heightmapResolution; 
@@ -71,9 +185,9 @@ public class CustomTerrain : MonoBehaviour
                 foreach (PerlinParameters p in perlinParameters)
                 {
                     heightMap[x, y] += Utils.fBM((x + p.mperlinOffSetX) * p.mperlinXScale,
-                        (y * p.mperlinYScale)
-                        * p.mperlinYScale, p.mperlinOctaves, p.mperlinPersistance)
-                        * p.mperlinHeightScale;
+                        (y * p.mperlinOffSetY) * p.mperlinYScale,
+                        p.mperlinOctaves, p.mperlinPersistance) * p.mperlinHeightScale;
+
                 }
             }
         }
@@ -86,7 +200,7 @@ public class CustomTerrain : MonoBehaviour
     public void RemovePerlin()
     {
         List<PerlinParameters> keptPerlinParameters = new List<PerlinParameters>(); 
-        for(int i =0;  i<perlinParameters.Count; i++)
+        for(int i = 0;  i<perlinParameters.Count; i++)
         {
             if (!perlinParameters[i].remove)
             {
@@ -114,7 +228,6 @@ public class CustomTerrain : MonoBehaviour
         }
         terrainData.SetHeights(0, 0, heightMap);
     }
-
     public void RandomTerrain()
     {
         int resolution = terrainData.heightmapResolution;
@@ -145,7 +258,6 @@ public class CustomTerrain : MonoBehaviour
         terrainData.SetHeights(0, 0, heightMap);
 
     }
-
     public void LoadTexture()
     {
         int resolution = terrainData.heightmapResolution;
