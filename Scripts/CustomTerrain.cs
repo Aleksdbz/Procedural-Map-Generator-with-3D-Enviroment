@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using System;
 using System.Linq;
+using static UnityEditor.PlayerSettings;
 
 
 [ExecuteInEditMode]
@@ -35,7 +36,7 @@ public class CustomTerrain : MonoBehaviour
     public float voronoiDropOff = 0.6f;
     public float voronoiMaxHeight = 0.5f;
     public float voronoiMinHeight = 0.1f;
-    public enum VoronoiType {Linear = 0, Power = 1, Combined = 2, SinPow = 4};
+    public enum VoronoiType { Linear = 0, Power = 1, Combined = 2, SinPow = 4 };
     public VoronoiType voronoiType = VoronoiType.Linear;
     #endregion
 
@@ -44,6 +45,7 @@ public class CustomTerrain : MonoBehaviour
     public float maxheight = 10f;
     public float MPDroughness = 2f;
     public float MDPheightDampener = 2f;
+    public int SmoothingStrenght = 2;
     #endregion
     //MULTIPLE PERLIN ----------
     [System.Serializable]
@@ -63,7 +65,47 @@ public class CustomTerrain : MonoBehaviour
     {
         new PerlinParameters()
     };
+    List<Vector2> GenerateNeugbours(Vector2 pos, int width, int height)
+    {
+        List<Vector2> neighbours = new List<Vector2>();
+        for (int y = -1; y < 2; y++)
+        {
+            for (int x = -1; x < 2; x++)
+            {
+                if (!(x == 0 && y == 0))
+                {
+                    Vector2 nPos = new Vector2(Mathf.Clamp(pos.x + x, 0, width - 1), Mathf.Clamp(pos.y + y, 0, height - 1));
+                    if (!neighbours.Contains(nPos))
+                        neighbours.Add(nPos);
+                }
 
+            }
+        }
+        return neighbours;
+    }
+    public void Smooth()
+    {
+        float[,] heightMap = GetHeightMap();
+        int resolution = terrainData.heightmapResolution;
+
+        for (int y = 0; y < resolution; y++)
+        {
+            for (int x = 0; x < resolution; x++)
+            {
+                float avgHeight = heightMap[x, y];
+                List<Vector2> neigbours = GenerateNeugbours(new Vector2(x, y), resolution, resolution);
+
+                foreach(Vector2 n in neigbours)
+                {
+                    avgHeight += heightMap[(int)n.x, (int)n.y];
+
+                }
+                heightMap[x, y] = avgHeight / ((float)neigbours.Count + SmoothingStrenght);
+            }
+
+        }
+        terrainData.SetHeights(0, 0, heightMap);
+    }
     public void MidPointDisplacment()
     {
         float[,] heightMap = GetHeightMap();
