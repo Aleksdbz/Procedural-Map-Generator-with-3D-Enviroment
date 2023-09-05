@@ -4,6 +4,7 @@ using UnityEngine;
 using System;
 using System.Linq;
 using static UnityEditor.PlayerSettings;
+using System.Security.Cryptography;
 
 
 [ExecuteInEditMode]
@@ -45,8 +46,10 @@ public class CustomTerrain : MonoBehaviour
     public float maxheight = 10f;
     public float MPDroughness = 2f;
     public float MDPheightDampener = 2f;
-    public int SmoothingStrenght = 2;
+    public int SmoothAmount = 2;
     #endregion
+
+    
     //MULTIPLE PERLIN ----------
     [System.Serializable]
     public class PerlinParameters
@@ -60,11 +63,66 @@ public class CustomTerrain : MonoBehaviour
         public float mperlinHeightScale = 0.09f;
         public bool remove = false;
     }
-
     public List<PerlinParameters> perlinParameters = new List<PerlinParameters>()
     {
         new PerlinParameters()
+    }; 
+    #region SplatMaps
+
+    [System.Serializable]
+    public class SplatHeights
+    {
+        public Texture2D texture = null;
+        public float minHeight = 0.1f;
+        public float maxHeight = 0.2f;
+        public bool remove = false;
+        public Vector2 tileOffset = new Vector2(0, 0);
+        public Vector2 tileSize = new Vector2(50, 50);
+
+    }
+    public List<SplatHeights> splatHeights = new List<SplatHeights>()
+    {
+       new SplatHeights()
     };
+    
+    public void AddNewSplatHeights() //It will called to GUI when you hit +
+    {
+        splatHeights.Add(new SplatHeights()); 
+    }
+    public void RemoveSplatHeights() //same just -
+    {
+        List<SplatHeights> keptSplatHeights = new List<SplatHeights>();
+        for(int i = 0; i < splatHeights.Count; i++)
+        {
+            if (!splatHeights[i].remove)
+            {
+                keptSplatHeights.Add(splatHeights[i]);
+            }
+        }
+        if(keptSplatHeights.Count == 0) //dont want to keep any
+        {
+            keptSplatHeights.Add(splatHeights[0]); //add at least 1 
+        }
+        splatHeights = keptSplatHeights;    
+    }
+    public void SplatMaps()
+    {
+        TerrainLayer[] newSplatProtoypes;
+        newSplatProtoypes = new TerrainLayer[splatHeights.Count];
+        int spinIndex = 0;
+        foreach(SplatHeights sh in splatHeights)
+        {
+            newSplatProtoypes[spinIndex] = new TerrainLayer();
+            newSplatProtoypes[spinIndex].diffuseTexture = sh.texture;
+            newSplatProtoypes[spinIndex].tileOffset = sh.tileOffset;
+            newSplatProtoypes[spinIndex].tileSize = sh.tileSize;
+            newSplatProtoypes[spinIndex].diffuseTexture.Apply();
+            spinIndex++;
+
+        }
+        terrainData.terrainLayers = newSplatProtoypes;
+    }
+    #endregion
     List<Vector2> GenerateNeugbours(Vector2 pos, int width, int height)
     {
         List<Vector2> neighbours = new List<Vector2>();
@@ -85,25 +143,32 @@ public class CustomTerrain : MonoBehaviour
     }
     public void Smooth()
     {
-        float[,] heightMap = GetHeightMap();
+        
         int resolution = terrainData.heightmapResolution;
+        float[,] heightMap = terrainData.GetHeights(0, 0, resolution, resolution);
+        float smoothProgress = 0;
 
-        for (int y = 0; y < resolution; y++)
+        for(int s = 0; s < SmoothAmount; s++)
         {
-            for (int x = 0; x < resolution; x++)
+            for (int y = 0; y < resolution; y++)
             {
-                float avgHeight = heightMap[x, y];
-                List<Vector2> neigbours = GenerateNeugbours(new Vector2(x, y), resolution, resolution);
-
-                foreach(Vector2 n in neigbours)
+                for (int x = 0; x < resolution; x++)
                 {
-                    avgHeight += heightMap[(int)n.x, (int)n.y];
+                    float avgHeight = heightMap[x, y];
+                    List<Vector2> neigbours = GenerateNeugbours(new Vector2(x, y), resolution, resolution);
 
+                    foreach (Vector2 n in neigbours)
+                    {
+                        avgHeight += heightMap[(int)n.x, (int)n.y];
+
+                    }
+                    heightMap[x, y] = avgHeight / ((float)neigbours.Count + 1);
                 }
-                heightMap[x, y] = avgHeight / ((float)neigbours.Count + SmoothingStrenght);
-            }
 
+            }
+            smoothProgress++;
         }
+      
         terrainData.SetHeights(0, 0, heightMap);
     }
     public void MidPointDisplacment()
