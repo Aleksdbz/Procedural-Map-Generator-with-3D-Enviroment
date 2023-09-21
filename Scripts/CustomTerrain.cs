@@ -3,14 +3,14 @@ using System.Collections.Generic;
 using UnityEngine;
 using System;
 using System.Linq;
-using static UnityEditor.PlayerSettings;
-using System.Security.Cryptography;
 
 
 [ExecuteInEditMode]
 
 public class CustomTerrain : MonoBehaviour
 {
+
+
     #region Public Data
     public Vector2 randomHeightRange = new Vector2(0, 0.1f);
     public Texture2D heightMapImage;
@@ -49,7 +49,7 @@ public class CustomTerrain : MonoBehaviour
     public int SmoothAmount = 2;
     #endregion
 
-    
+
     //MULTIPLE PERLIN ----------
     [System.Serializable]
     public class PerlinParameters
@@ -69,15 +69,23 @@ public class CustomTerrain : MonoBehaviour
     }; 
     #region SplatMaps
 
+
+    //SPLAT MAPS----------------
     [System.Serializable]
     public class SplatHeights
     {
         public Texture2D texture = null;
         public float minHeight = 0.1f;
         public float maxHeight = 0.2f;
+        public float minSlope = 0;
+        public float maxSlope = 1.5f;
         public bool remove = false;
         public Vector2 tileOffset = new Vector2(0, 0);
         public Vector2 tileSize = new Vector2(50, 50);
+        public float splatXoffSet = 0.01f;
+        public float splatYoffSet = 0.01f;
+        public float splatOffset = 0.01f;
+        public float splatNoiseScaler = 0.01f;
 
     }
     public List<SplatHeights> splatHeights = new List<SplatHeights>()
@@ -105,9 +113,39 @@ public class CustomTerrain : MonoBehaviour
         }
         splatHeights = keptSplatHeights;    
     }
+
+    float GetSteepness(float[,] heightMap,int x, int y, int width, int height)
+    {
+        float h = heightMap[x, y];
+
+        // Default next points are to the right (x-direction) and below (y-direction).
+        int nx = x + 1;
+        int ny = y +1;
+
+        // If the point is on the rightmost edge, go left (x-direction) to find gradient.
+        // If on the bottommost edge, go up (y-direction) to find gradient.
+        if (nx > width - 1) nx = x - 1;
+        if (ny > height - 1) ny = y - 1;
+
+        // Determine the gradient in the x and y directions.
+        float dx = heightMap[nx, y] - h;
+        float dy = heightMap[x, ny] - h;
+
+        // Calculate the vector gradient.
+        Vector2 gradient = new Vector2(dx, dy);
+
+        // The magnitude (length) of the gradient vector gives the steepness.
+        float steep = gradient.magnitude;
+        
+        return steep;
+
+    }  
+        
+
     public void SplatMaps()
     {
         TerrainLayer[] newSplatProtoypes;
+        int resolution = terrainData.heightmapResolution;
         newSplatProtoypes = new TerrainLayer[splatHeights.Count];
         int spinIndex = 0;
         foreach(SplatHeights sh in splatHeights)
@@ -121,7 +159,54 @@ public class CustomTerrain : MonoBehaviour
 
         }
         terrainData.terrainLayers = newSplatProtoypes;
+        float[,] heightMap = terrainData.GetHeights(0,0,resolution,resolution);
+        float[,,] splatMapData = new float[terrainData.alphamapHeight,terrainData.alphamapHeight, terrainData.alphamapLayers];
+
+        for(int x= 0; x < terrainData.alphamapHeight; x++)
+        {
+            for (int y = 0; y < terrainData.alphamapHeight; y++)
+            {
+                float[] splat = new float[terrainData.alphamapHeight]; 
+                for(int i = 0; i < splatHeights.Count; i++)
+                {
+                    float splatNoise = Mathf.PerlinNoise(x * splatHeights[i].splatXoffSet, y * splatHeights[i].splatYoffSet) 
+                        * splatHeights[i].splatNoiseScaler;
+                    float offset = splatHeights[i].splatOffset + splatNoise;
+                    float thisHeightStart = splatHeights[i].minHeight - offset;
+                    float thisHeightStop = splatHeights[i].maxHeight + offset;
+                    float steepness = GetSteepness(heightMap, x, y, 
+                        terrainData.heightmapResolution, terrainData.heightmapResolution);
+
+                    if (heightMap[x,y] > thisHeightStart && heightMap[x,y] <= thisHeightStop &&
+                        steepness >= splatHeights[i].minSlope && steepness <= splatHeights[i].maxSlope)
+                    {
+                        splat[i] = 1;
+                    }
+                }
+                NormalizedVector(splat);
+                for(int j =0; j < splatHeights.Count; j++)
+                {
+                    splatMapData[x, y, j] = splat[j];
+                }  
+            } 
+        }
+
+        terrainData.SetAlphamaps(0, 0, splatMapData);
+
     }
+    void NormalizedVector(float[] v )
+    {
+        float total = 0;
+        for(int i = 0; i < v.Length; i++)
+        {
+            total += v[i];  
+        }
+        for(int i = 0; i < v.Length; i++)
+        {
+            v[i] /= total;
+        }
+    }
+
     #endregion
     List<Vector2> GenerateNeugbours(Vector2 pos, int width, int height)
     {
